@@ -6,6 +6,7 @@ package handler
 import (
 	"net/http"
 
+	"X402AiPolyMarket/PolyMarket/internal/handler/health"
 	"X402AiPolyMarket/PolyMarket/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
@@ -16,9 +17,12 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 		[]rest.Route{
 			{
 				Method:  http.MethodGet,
-				Path:    "/from/:name",
-				Handler: PolyMarketHandler(serverCtx),
+				Path:    "/health",
+				Handler: health.HealthHandler(serverCtx),
 			},
 		},
+		rest.WithPrefix("/api/v1"),
 	)
+
+
 }
