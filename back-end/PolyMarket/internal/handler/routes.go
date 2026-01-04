@@ -6,16 +6,13 @@ package handler
 import (
 	"net/http"
 
-	"X402AiPolyMarket/PolyMarket/internal/handler/auth"
 	"X402AiPolyMarket/PolyMarket/internal/handler/health"
-	"X402AiPolyMarket/PolyMarket/internal/handler/user"
 	"X402AiPolyMarket/PolyMarket/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
 )
 
 func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
-	// 公开路由（无需认证）
 	server.AddRoutes(
 		[]rest.Route{
 			{
@@ -23,50 +20,9 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/health",
 				Handler: health.HealthHandler(serverCtx),
 			},
-			{
-				Method:  http.MethodPost,
-				Path:    "/auth/nonce",
-				Handler: auth.NonceHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodPost,
-				Path:    "/auth/login",
-				Handler: auth.LoginHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodPost,
-				Path:    "/auth/refresh",
-				Handler: auth.RefreshHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodGet,
-				Path:    "/user/:address",
-				Handler: user.GetPublicUserHandler(serverCtx),
-			},
 		},
 		rest.WithPrefix("/api/v1"),
 	)
 
-	// 需要认证的路由
-	server.AddRoutes(
-		[]rest.Route{
-			{
-				Method:  http.MethodPost,
-				Path:    "/auth/logout",
-				Handler: auth.LogoutHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodGet,
-				Path:    "/user/profile",
-				Handler: user.GetProfileHandler(serverCtx),
-			},
-			{
-				Method:  http.MethodPut,
-				Path:    "/user/profile",
-				Handler: user.UpdateProfileHandler(serverCtx),
-			},
-		},
-		rest.WithPrefix("/api/v1"),
-		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),
-	)
+
 }
