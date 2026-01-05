@@ -84,34 +84,99 @@ contract RewardPool is AccessControl, Pausable, ReentrancyGuard {
         emit ReceiveProfit(usdcAmount, tokenAmount);
     }
 
-    function RewardDistributionistribution(
-        address[] calldata receipts,
-        uint256[] calldata amounts
-    ) external onlyRole(DISTRIBUTOR_ROLE) whenNotPaused nonReentrant {
-        require(
-            receipts.length == amounts.length,
-            "receipts and amounts length mismatch"
-        );
+    // function RewardDistributionistribution(
+    //     address[] calldata receipts,
+    //     uint256[] calldata amounts
+    // ) external onlyRole(DISTRIBUTOR_ROLE) whenNotPaused nonReentrant {}
 
-        // 获取待总的待分配的利润
-        uint256 totalUsdc = pendingProfit.usdcAmount;
-        uint256 totalToken = pendingProfit.tokenAmount;
+    function executeDistribution(address[] calldata rewardRecipients, uint256[] calldata rewardAmounts)
+        external
+        onlyRole(OPERATOR_ROLE)
+        nonReentrant
+        whenNotPaused
+    {
+        require(rewardRecipients.length == rewardAmounts.length, "Arrays length mismatch");
 
-        // 1、按比例回购（销毁）平台代币
-        uint256 buyBackAmount = totalToken.mul(buybackRate).div(10000);
-        if (buyBackAmount > 0) {
-            // 实际生产环境应该桶 dex 执行链上回购，拿到回购代币再销毁
-            // 这里采用直接销毁合约中已有的部分代币
-            insightToken.transfer(BURN_ADDRESS, buyBackAmount);
-            pendingProfit.totalToken -= buyBackAmount; // 更新待分配余额
+        // 1. 从“待分配利润”中锁定本次分配的 USDC 资金池
+        // **注意**：只处理 USDC，代币奖励通过铸造产生。
+        uint256 usdcToDistribute = pendingProfit.usdcAmount;
+        require(usdcToDistribute > 0, "No pending profit to distribute");
+
+        // 2. 根据固定比例计算各部分额度（基于 USDC）
+        uint256 buybackUsdc = usdcToDistribute * buybackRate / 10000;
+        uint256 treasuryUsdc = usdcToDistribute * treasuryRate / 10000;
+        // 奖励额度也换算成等值的 USDC，用于后续计算和审计，实际发放的是铸造的代币
+        uint256 rewardValueInUsdc = usdcToDistribute * rewardRate / 10000;
+
+        // 3. 奖励是铸造token 给用户
+        uint256 totalRewardAmount = 0;
+        for (uint256 i = 0; i < rewardRecipients.length; i++) {
+            totalRewardAmount += rewardAmounts[i];
+        }
+        // 关键：接入预言机将 代币转换成 usdc 价格
+        // 此处假设固定的兑换率
+        uint256 tokenPerUsdc = 100; // **必须替换为从预言机获取的动态价格！**
+        uint256 maxTokensToMint = rewardValueInUsdc * tokenPerUsdc;
+        require(totalRewardAmount <= maxTokensToMint, "Rewards exceed allocation");
+
+        // 4. 执行分配
+        // 4.1 回购并销毁（真实链上操作）
+        if (buybackUsdc > 0) {
+            // Step 1: 授权给DEX路由器
+            usdcToken.approve(address(uniswapRouter), buybackUsdc);
+            // Step 2: 执行兑换，将 USDC 换成 $INSIGHT
+            // 简化路径：USDC -> WETH -> $INSIGHT (具体路径取决于池子)
+            address[] memory path = new address[](3);
+            path[0] = address(usdcToken);
+            path[1] = uniswapRouter.WETH(); // 假设通过WETH中转
+            path[2] = address(insightToken);
+            
+            uint256[] memory amounts = uniswapRouter.swapExactTokensForTokens(
+                buybackUsdc,
+                0, // 接受任何滑点，生产环境应设置最小值
+                path,
+                address(this), // 代币先换到本合约
+                block.timestamp + 300
+            );
+            uint256 tokensBought = amounts[amounts.length - 1]; // 得到的 $INSIGHT 数量
+            // Step 3: 销毁回购得来的代币
+            insightToken.transfer(BURN_ADDRESS, tokensBought);
+            emit BuybackExecuted(buybackUsdc, tokensBought, tokensBought);
+            pendingProfit.usdcAmount -= buybackUsdc;
         }
 
-        // 2、分发代币奖励给用户
-        uint256 rewardAmount = totalToken.mul(rewardRate).div(10000);
-
-        for (uint256 i = 0; i < receipts.length; i++) {
-            insightToken.transferFrom(msg.sender, receipts[i], amounts[i]);
+        // 4.2 分发奖励（通过铸造）
+        if (totalRewardAmount > 0) {
+            // **核心改动**：铸造代币给合约本身（或直接给用户）
+            insightToken.mint(address(this), totalRewardAmount);
+            // 然后将铸造出的代币分发给用户
+            for (uint256 i = 0; i < rewardRecipients.length; i++) {
+                if (rewardAmounts[i] > 0) {
+                    insightToken.transfer(rewardRecipients[i], rewardAmounts[i]);
+                }
+            }
+            // 注意：pendingProfit.tokenAmount 不再有意义，因为代币是铸造的，无需累积。
+            emit RewardsDistributed(rewardRecipients, rewardAmounts);
         }
+
+        // 4.3 转入开发金库
+        if (treasuryUsdc > 0) {
+            usdcToken.transfer(devTreasury, treasuryUsdc);
+            pendingProfit.usdcAmount -= treasuryUsdc;
+        }
+
+        // 5. 本次分配完成，清空“待分配利润”
+        // 由于奖励是铸造的，我们只关心 USDC 部分是否分配完毕。
+        // 处理可能的微小舍入误差：将剩余的一点 USDC 也转入金库或结转。
+        if (pendingProfit.usdcAmount > 0) {
+            // 可选：将微小余额转入金库或保留至下次
+            usdcToken.transfer(devTreasury, pendingProfit.usdcAmount);
+        }
+        pendingProfit.usdcAmount = 0;
+        // tokenAmount 不再需要追踪，可以移除该状态变量
+        pendingProfit.tokenAmount = 0;
+        
+        emit DistributionCompleted(usdcToDistribute, totalRewardAmount);
     }
 
     /**
@@ -123,5 +188,23 @@ contract RewardPool is AccessControl, Pausable, ReentrancyGuard {
 
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
+    }
+
+    function updateAllocation(
+        uint256 _buybackRate,
+        uint256 _rewardRate,
+        uint256 _treasuryRate,
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(_buybackRate + _rewardRate + _treasuryRate + _burnRate == 10000, "Sum must be 100%");
+        buybackRate = _buybackRate;
+        rewardRate = _rewardRate;
+        treasuryRate = _treasuryRate;
+        emit AllocationUpdated(_buybackRate, _rewardRate, _treasuryRate, _burnRate);
+    }
+
+
+    function updateDevTreasury(address _newTreasury) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(_newTreasury != address(0), "Invalid address");
+        devTreasury = _newTreasury;
     }
 }
