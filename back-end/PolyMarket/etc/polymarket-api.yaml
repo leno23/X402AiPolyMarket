@@ -1,3 +1,12 @@
 Name: PolyMarket-api
 Host: 0.0.0.0
 Port: 8888
+
+# X402 支付配置
+X402:
+  Enabled: true
+  Amount: 0.001  # 服务费用（SOL）
+  Recipient: ""  # Solana 收款地址（需要配置）
+  RPCURL: "https://api.mainnet-beta.solana.com"  # Solana RPC 端点
+  # 开发环境可以使用 devnet
+  # RPCURL: "https://api.devnet.solana.com"
