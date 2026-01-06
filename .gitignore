@@ -21,3 +21,5 @@ rad.json
 #Test results file
 TestResults.xml
 .history/
+.next/
+node_modules/
