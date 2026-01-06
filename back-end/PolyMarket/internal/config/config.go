@@ -13,7 +13,6 @@ type Config struct {
 	Blockchain BlockchainConfig
 	Auth       AuthConfig
 	Business   BusinessConfig
-	X402       X402Config
 }
 
 type MySQLConfig struct {
@@ -52,12 +51,4 @@ type BusinessConfig struct {
 	MinMarketDuration int64
 	MaxMarketDuration int64
 	MinLiquidity      float64
-}
-
-// X402Config X402 支付配置
-type X402Config struct {
-	Enabled   bool    `json:"Enabled" yaml:"Enabled"`
-	Amount    float64 `json:"Amount" yaml:"Amount"`       // 服务费用（SOL）
-	Recipient string  `json:"Recipient" yaml:"Recipient"` // Solana 收款地址
-	RPCURL    string  `json:"RPCURL" yaml:"RPCURL"`       // Solana RPC 端点
 }
